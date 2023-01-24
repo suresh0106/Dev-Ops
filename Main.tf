@@ -62,7 +62,26 @@ resource "azurerm_network_interface" "stagingvm2nic" {
     public_ip_address_id          = azurerm_public_ip.stagingpublicip.id
   }
 }
-#NSG
+resource "azurerm_public_ip" "publicip" {
+  name                = "Prod"
+  location            = "central india"
+  resource_group_name = azurerm_resource_group.test-terraform.name
+  allocation_method   = "Static"
+  sku                 = "standard"
+}
+resource "azurerm_network_interface" "prodvm1nic" {
+  name                = "prodvm1-nic"
+  location            = "central india"
+  resource_group_name = azurerm_resource_group.test-terraform.name
+
+  ip_configuration {
+    name                          = "ipconfig1"
+    subnet_id                     = azurerm_subnet.prodsubnet.id
+    private_ip_address_allocation = "dynamic"
+    public_ip_address_id          = azurerm_public_ip.publicip.id
+  }
+}
+#NSG Staging
 resource "azurerm_network_security_group" "stagings-nsg01" {
   name                = "nsg-stagingsubnet"
   resource_group_name = azurerm_resource_group.test-terraform.name
@@ -104,6 +123,48 @@ resource "azurerm_subnet_network_security_group_association" "stagings-nsg01" {
   resource_group_name = azurerm_resource_group.test-terraform.name
   network_security_group_name = azurerm_network_security_group.stagings-nsg01.name
  }
+ #NSG prod
+resource "azurerm_network_security_group" "prod-nsg01" {
+  name                = "nsg-prodsubnet"
+  resource_group_name = azurerm_resource_group.test-terraform.name
+  location            = "central india"
+     
+  tags = {
+    "Environment" = "prod"
+  }
+}
+#NSG Association
+resource "azurerm_subnet_network_security_group_association" "prod-nsg01" {
+  subnet_id                 = azurerm_subnet.prodsubnet.id
+  network_security_group_id = azurerm_network_security_group.prod-nsg01.id
+  depends_on = [azurerm_network_security_group.prod-nsg01]
+ }
+ resource "azurerm_network_security_rule" "RDP-1" {
+  name                       = "RDP"
+  priority                   = "1001"
+  direction                  = "Inbound"
+  access                     = "Allow"
+  protocol                   = "Tcp"
+  source_port_range          = "*"
+  destination_port_range     = "3389"
+  source_address_prefix      = "*"
+  destination_address_prefix = "*"
+  resource_group_name = azurerm_resource_group.test-terraform.name
+  network_security_group_name = azurerm_network_security_group.prod-nsg01.name
+ }
+ resource "azurerm_network_security_rule" "SSH-1" {
+  name                       = "SSH"
+  priority                   = "1110"
+  direction                  = "Inbound"
+  access                     = "Allow"
+  protocol                   = "Tcp"
+  source_port_range          = "*"
+  destination_port_range     = "22"
+  source_address_prefix      = "*"
+  destination_address_prefix = "*"
+  resource_group_name = azurerm_resource_group.test-terraform.name
+  network_security_group_name = azurerm_network_security_group.prod-nsg01.name
+ }
 resource "azurerm_windows_virtual_machine" "stagingVM" {
   name                  = "stagingVM"
   location              = "central india"
@@ -118,9 +179,40 @@ resource "azurerm_windows_virtual_machine" "stagingVM" {
     sku       = "2019-Datacenter"
     version   = "latest"
   }
+   os_disk {
+    name                 = "myOsDisk"
+    disk_size_gb         = "128"
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+  tags = {
+        "Environment" = "HUB"
+        "Deployed from" = "Azure DevOps"
+  
+    }
+}
+    resource "azurerm_windows_virtual_machine" "prodVM" {
+  name                  = "prodVM"
+  location              = "central india"
+  resource_group_name   = azurerm_resource_group.test-terraform.name
+  network_interface_ids = [azurerm_network_interface.prodvm1nic.id]
+  size                  = "Standard_D2as_v5"
+  admin_username        = "adminuser"
+  admin_password        = "Password123!"
+  source_image_reference {
+    publisher = "MicrosoftWindowsServer"
+    offer     = "WindowsServer"
+    sku       = "2019-Datacenter"
+    version   = "latest"
+  }
+  tags = {
+        "Environment" = "prod"
+        "Deployed from" = "Azure DevOps"
+  
+    }
   os_disk {
     name                 = "myOsDisk"
-    disk_size_gb         = "256"
+    disk_size_gb         = "128"
     caching              = "ReadWrite"
     storage_account_type = "Standard_LRS"
   }
